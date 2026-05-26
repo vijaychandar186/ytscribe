@@ -19,7 +19,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
-import { Textarea } from "@/components/ui/textarea";
 
 type TranscriptItem = {
   id: string;
@@ -52,7 +51,6 @@ type PersistedState = {
 export function TranscriptClient() {
   const [url, setUrl] = useState(exampleUrl);
   const [language, setLanguage] = useState("en");
-  const [cookies, setCookies] = useState("");
   const [data, setData] = useState<TranscriptResponse | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -107,7 +105,6 @@ export function TranscriptClient() {
         body: JSON.stringify({
           url,
           language: language.trim() || undefined,
-          cookies: cookies.trim() || undefined,
         }),
       });
       const payload = await response.json();
@@ -188,37 +185,19 @@ export function TranscriptClient() {
                 <summary className="cursor-pointer text-sm font-medium text-muted-foreground select-none">
                   Options (optional)
                 </summary>
-                <div className="mt-3 flex flex-col gap-3">
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="sub-language">Subtitle language</Label>
-                    <Input
-                      id="sub-language"
-                      value={language}
-                      onChange={(event) => setLanguage(event.target.value)}
-                      placeholder="en"
-                      disabled={loading}
-                      className="max-w-32"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      ISO code, e.g. <code>en</code>, <code>es</code>, <code>ja</code>. Defaults to English.
-                    </p>
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="cookies">YouTube cookies</Label>
-                    <Textarea
-                      id="cookies"
-                      value={cookies}
-                      onChange={(event) => setCookies(event.target.value)}
-                      placeholder="# Netscape HTTP Cookie File..."
-                      disabled={loading}
-                      rows={3}
-                      className="font-mono text-xs"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Paste a <code>cookies.txt</code> export (Netscape format) if YouTube blocks
-                      anonymous requests. Stored in memory only — never written to localStorage.
-                    </p>
-                  </div>
+                <div className="mt-3 flex flex-col gap-2">
+                  <Label htmlFor="sub-language">Subtitle language</Label>
+                  <Input
+                    id="sub-language"
+                    value={language}
+                    onChange={(event) => setLanguage(event.target.value)}
+                    placeholder="en"
+                    disabled={loading}
+                    className="max-w-32"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    ISO code, e.g. <code>en</code>, <code>es</code>, <code>ja</code>. Defaults to English.
+                  </p>
                 </div>
               </details>
 
