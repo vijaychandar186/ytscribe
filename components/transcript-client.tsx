@@ -26,11 +26,11 @@ type TranscriptItem = {
   url: string;
   index: number;
   text: string;
-  status: "ready" | "missing" | "error";
+  status: "pending" | "ready" | "missing" | "error";
   error?: string;
 };
 
-type TranscriptResponse = {
+type TranscriptData = {
   count: number;
   readyCount: number;
   mergedText: string;
@@ -45,13 +45,13 @@ const STORAGE_KEY = "transcript-extractor:v1";
 type PersistedState = {
   url: string;
   language: string;
-  data: TranscriptResponse | null;
+  data: TranscriptData | null;
 };
 
 export function TranscriptClient() {
   const [url, setUrl] = useState(exampleUrl);
   const [language, setLanguage] = useState("en");
-  const [data, setData] = useState<TranscriptResponse | null>(null);
+  const [data, setData] = useState<TranscriptData | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState("");
@@ -85,10 +85,9 @@ export function TranscriptClient() {
   }, [url, language, data, hydrated]);
 
   const summary = useMemo(() => {
-    if (!data) {
-      return "Paste a YouTube URL and fetch transcript text.";
-    }
-
+    if (!data) return "Paste a YouTube URL and fetch transcript text.";
+    const pending = data.items.filter((i) => i.status === "pending").length;
+    if (pending > 0) return `Fetching ${pending} remaining of ${data.count}…`;
     return `${data.readyCount} of ${data.count} transcripts ready`;
   }, [data]);
 
@@ -97,23 +96,72 @@ export function TranscriptClient() {
     setError("");
     setCopied("");
     setLoading(true);
+    setData(null);
 
     try {
-      const response = await fetch("/api/transcripts", {
+      // Phase 1: resolve playlist → video list (cheap, ~2 subrequests)
+      const listRes = await fetch("/api/transcripts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url,
-          language: language.trim() || undefined,
-        }),
+        body: JSON.stringify({ url }),
       });
-      const payload = await response.json();
+      const listPayload = (await listRes.json()) as {
+        count: number;
+        videos: { id: string; title: string; url: string }[];
+        error?: string;
+      };
 
-      if (!response.ok) {
-        throw new Error(payload.error || "Failed to fetch transcripts.");
+      if (!listRes.ok) {
+        throw new Error(listPayload.error || "Failed to fetch playlist.");
       }
 
-      setData(payload);
+      const lang = language.trim() || "en";
+
+      // Show cards immediately with pending placeholders
+      const pendingItems: TranscriptItem[] = listPayload.videos.map((v, i) => ({
+        ...v,
+        index: i + 1,
+        text: "",
+        status: "pending",
+      }));
+
+      setData({ count: listPayload.count, readyCount: 0, mergedText: "", items: pendingItems });
+
+      // Phase 2: fetch each transcript individually (2–3 subrequests each, separate invocations)
+      await Promise.all(
+        listPayload.videos.map(async (video, i) => {
+          let result: TranscriptItem;
+          try {
+            const res = await fetch("/api/transcript", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ videoId: video.id, title: video.title, url: video.url, index: i + 1, language: lang }),
+            });
+            const payload = (await res.json()) as TranscriptItem & { error?: string };
+            if (!res.ok) throw new Error(payload.error || "Failed.");
+            result = payload;
+          } catch (err) {
+            result = {
+              ...video,
+              index: i + 1,
+              text: "",
+              status: "error",
+              error: err instanceof Error ? err.message : "Failed to fetch transcript.",
+            };
+          }
+
+          setData((prev) => {
+            if (!prev) return prev;
+            const items = prev.items.map((it) => (it.id === video.id ? result : it));
+            const readyCount = items.filter((it) => it.status === "ready").length;
+            const mergedText = items
+              .filter((it) => it.status === "ready" && it.text)
+              .map((it) => `# ${it.index}. ${it.title}\n${it.url}\n\n${it.text}`)
+              .join("\n\n");
+            return { ...prev, items, readyCount, mergedText };
+          });
+        })
+      );
     } catch (caughtError) {
       setData(null);
       setError(caughtError instanceof Error ? caughtError.message : "Failed to fetch transcripts.");
@@ -238,7 +286,7 @@ export function TranscriptClient() {
               <CardContent>
                 <ScrollArea className="h-[420px] w-full rounded-xl border border-input bg-input/30">
                   <pre className="whitespace-pre-wrap px-3 py-3 font-mono text-sm leading-6">
-                    {data.mergedText}
+                    {data.mergedText || "Transcripts loading…"}
                   </pre>
                 </ScrollArea>
               </CardContent>
@@ -252,9 +300,11 @@ export function TranscriptClient() {
                       {item.index}. {item.title}
                     </CardTitle>
                     <CardDescription className="text-xs">
-                      {item.status === "ready"
-                        ? `${item.text.length.toLocaleString()} characters`
-                        : item.error || "Transcript unavailable"}
+                      {item.status === "pending"
+                        ? "Fetching…"
+                        : item.status === "ready"
+                          ? `${item.text.length.toLocaleString()} characters`
+                          : item.error || "Transcript unavailable"}
                     </CardDescription>
                     <CardAction>
                       <CopyButton label={item.title} text={item.text} />
@@ -263,7 +313,7 @@ export function TranscriptClient() {
                   <CardContent>
                     <ScrollArea className="h-48 w-full rounded-xl border border-input bg-input/30">
                       <pre className="whitespace-pre-wrap px-3 py-3 text-sm leading-6">
-                        {item.text || item.error || ""}
+                        {item.status === "pending" ? "Loading…" : item.text || item.error || ""}
                       </pre>
                     </ScrollArea>
                   </CardContent>
