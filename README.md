@@ -12,7 +12,7 @@ Paste a YouTube video or playlist URL, get every transcript as copy-ready text �
 
 ## Stack
 
-- Next.js 16 (App Router, Turbopack) on Node runtime
+- Next.js 16 (App Router, Turbopack) on Node runtime, deployed on Cloudflare Workers
 - React 19
 - shadcn/ui + Tailwind CSS v4
 - `youtubei.js` — sole dependency for talking to YouTube (playlist resolution + caption track URLs)
@@ -39,15 +39,23 @@ ISO language code matched against each video's `caption_tracks[].language_code`.
 
 Language preference is persisted to `localStorage` alongside the URL.
 
-## How the route works
+## How the routes work
 
-[app/api/transcripts/route.ts](app/api/transcripts/route.ts):
+Two endpoints keep each Cloudflare Worker invocation within the free plan's 50 subrequest limit.
+
+**`POST /api/transcripts`** — resolves the URL to a video list (~2 subrequests total):
 
 1. Parses the URL — playlist ID wins; falls back to a single video ID.
 2. Walks the playlist with continuations until exhausted, dedupes by video ID.
-3. For each video (concurrency 3): calls `Innertube.getBasicInfo(videoId, { client: "IOS" })`, reads `info.captions.caption_tracks`, picks the best match for the requested language (manual track preferred over auto-generated).
-4. Fetches the track's `base_url` with `&fmt=json3` and parses the structured events into plain text.
-5. Returns each video's status (`ready` / `missing` / `error`) plus a single concatenated `mergedText`.
+3. Returns `{ count, videos: [{ id, title, url }] }` — no transcript fetching.
+
+**`POST /api/transcript`** — fetches one video's transcript (2–3 subrequests):
+
+1. Calls `Innertube.getBasicInfo(videoId, { client: "IOS" })`, reads `info.captions.caption_tracks`, picks the best match for the requested language (manual track preferred over auto-generated).
+2. Fetches the track's `base_url` with `&fmt=json3` and parses the structured events into plain text.
+3. Returns a single item with status `ready` / `missing` / `error`.
+
+The client calls `/api/transcripts` first, then fires one `/api/transcript` per video in parallel. Cards appear progressively as each resolves; merged text is derived client-side.
 
 ### Why the IOS client
 
@@ -55,27 +63,36 @@ Modern YouTube gates caption metadata behind a **PO Token** (Proof-of-Origin) wh
 
 ## API
 
-`POST /api/transcripts`
+`POST /api/transcripts` — resolve a URL to a video list
+
+```ts
+type RequestBody = { url: string };
+
+type ResponseBody = {
+  count: number;
+  videos: Array<{ id: string; title: string; url: string }>;
+};
+```
+
+`POST /api/transcript` — fetch one video's transcript
 
 ```ts
 type RequestBody = {
-  url: string;            // required: any YouTube video or playlist URL
-  language?: string;      // optional: ISO code, defaults to "en"
+  videoId: string;
+  title?: string;
+  url?: string;
+  index?: number;
+  language?: string;      // ISO code, defaults to "en"
 };
 
 type ResponseBody = {
-  count: number;          // total videos resolved
-  readyCount: number;     // videos with a usable transcript
-  mergedText: string;     // every ready transcript joined in order
-  items: Array<{
-    id: string;
-    title: string;
-    url: string;
-    index: number;
-    text: string;
-    status: "ready" | "missing" | "error";
-    error?: string;
-  }>;
+  id: string;
+  title: string;
+  url: string;
+  index: number;
+  text: string;
+  status: "ready" | "missing" | "error";
+  error?: string;
 };
 ```
 
@@ -83,7 +100,8 @@ type ResponseBody = {
 
 ```
 app/
-  api/transcripts/route.ts   # POST handler — Innertube + timedtext only
+  api/transcripts/route.ts   # POST — resolves URL to video list
+  api/transcript/route.ts    # POST — fetches one video's transcript
   layout.tsx, page.tsx       # Shell + entry
 components/
   transcript-client.tsx      # The whole UI (single client component)
@@ -95,7 +113,7 @@ components/
 - **"This video has no captions"** — the video genuinely has no caption tracks (private uploads, music videos, very new uploads).
 - **`No "<lang>" captions available`** — the video has captions but none in your requested language. Try `en` or another code from the video's caption settings.
 - **"Use a valid YouTube video or playlist URL"** — URL must include either `?v=`, `?list=`, `youtu.be/<id>`, `/shorts/<id>`, or `/embed/<id>`.
-- **Long playlists time out** — `maxDuration` is 60s on the route. Split very large playlists or raise the limit if your host allows.
+- **Long playlists time out** — playlist resolution has a 60s limit; individual transcript fetches have a 30s limit. Very large playlists may need to be split.
 
 ## License
 

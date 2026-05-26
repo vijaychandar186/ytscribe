@@ -32,8 +32,6 @@ type TranscriptItem = {
 
 type TranscriptData = {
   count: number;
-  readyCount: number;
-  mergedText: string;
   items: TranscriptItem[];
 };
 
@@ -84,11 +82,20 @@ export function TranscriptClient() {
     }
   }, [url, language, data, hydrated]);
 
+  const mergedText = useMemo(() => {
+    if (!data) return "";
+    return data.items
+      .filter((it) => it.status === "ready" && it.text)
+      .map((it) => `# ${it.index}. ${it.title}\n${it.url}\n\n${it.text}`)
+      .join("\n\n");
+  }, [data]);
+
   const summary = useMemo(() => {
     if (!data) return "Paste a YouTube URL and fetch transcript text.";
     const pending = data.items.filter((i) => i.status === "pending").length;
     if (pending > 0) return `Fetching ${pending} remaining of ${data.count}…`;
-    return `${data.readyCount} of ${data.count} transcripts ready`;
+    const readyCount = data.items.filter((i) => i.status === "ready").length;
+    return `${readyCount} of ${data.count} transcripts ready`;
   }, [data]);
 
   async function fetchTranscripts(event: React.SyntheticEvent<HTMLFormElement>) {
@@ -125,7 +132,7 @@ export function TranscriptClient() {
         status: "pending",
       }));
 
-      setData({ count: listPayload.count, readyCount: 0, mergedText: "", items: pendingItems });
+      setData({ count: listPayload.count, items: pendingItems });
 
       // Phase 2: fetch each transcript individually (2–3 subrequests each, separate invocations)
       await Promise.all(
@@ -152,13 +159,7 @@ export function TranscriptClient() {
 
           setData((prev) => {
             if (!prev) return prev;
-            const items = prev.items.map((it) => (it.id === video.id ? result : it));
-            const readyCount = items.filter((it) => it.status === "ready").length;
-            const mergedText = items
-              .filter((it) => it.status === "ready" && it.text)
-              .map((it) => `# ${it.index}. ${it.title}\n${it.url}\n\n${it.text}`)
-              .join("\n\n");
-            return { ...prev, items, readyCount, mergedText };
+            return { ...prev, items: prev.items.map((it) => (it.id === video.id ? result : it)) };
           });
         })
       );
@@ -280,13 +281,13 @@ export function TranscriptClient() {
                 <CardTitle>Merged Transcript</CardTitle>
                 <CardDescription>Everything appended in order.</CardDescription>
                 <CardAction>
-                  <CopyButton label="merged transcript" text={data.mergedText} />
+                  <CopyButton label="merged transcript" text={mergedText} />
                 </CardAction>
               </CardHeader>
               <CardContent>
                 <ScrollArea className="h-[420px] w-full rounded-xl border border-input bg-input/30">
                   <pre className="whitespace-pre-wrap px-3 py-3 font-mono text-sm leading-6">
-                    {data.mergedText || "Transcripts loading…"}
+                    {mergedText || "Transcripts loading…"}
                   </pre>
                 </ScrollArea>
               </CardContent>
