@@ -46,7 +46,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "No videos were found for that URL." }, { status: 400 });
     }
 
-    const items = await mapWithConcurrency(videos, 3, async (video, itemIndex) => {
+    const items = await mapWithConcurrency(videos, 1, async (video, itemIndex) => {
       return fetchTranscript(youtube, video, itemIndex + 1, language);
     });
 

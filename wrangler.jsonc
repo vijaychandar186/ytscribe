@@ -9,5 +9,8 @@
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
+  },
+  "limits": {
+    "subrequests": 1000
   }
 }
