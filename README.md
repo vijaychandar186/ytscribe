@@ -18,7 +18,7 @@ Paste a YouTube video or playlist URL, get every transcript as copy-ready text â
 - `youtubei.js` â€” sole dependency for talking to YouTube (playlist resolution + caption track URLs)
 - Hugeicons for icons
 
-No bundled binaries. The serverless function is small enough to deploy comfortably on Vercel Hobby.
+No bundled binaries. Deployed on Cloudflare Workers via the OpenNext adapter.
 
 ## Getting started
 
